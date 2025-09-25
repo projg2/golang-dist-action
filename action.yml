@@ -5,9 +5,11 @@ inputs:
   tag:
     description: Tag to create release on
     default: ${{ github.ref_name }}
+  vendor-dir:
+    description: Top level dir name inside source archive
   dist-filename:
     description: The name of distribution file (e.g. foo-1.2.3-deps.tar.xz)
-    default: ${{ github.event.repository.name }}-${{ github.ref_name }}-deps.tar.xz
+    default: ${{ github.event.repository.name }}-${{ github.ref_name }}
 runs:
   using: composite
   steps:
@@ -19,7 +21,7 @@ runs:
         go-version: '^1.25.0'
         check-latest: true
 
-    - name: Grab the license mapping
+    - name: Collect go-mod
       shell: bash
       env:
         GOMODCACHE: "/tmp/go-mod"
@@ -32,22 +34,42 @@ runs:
           echo "::endgroup::"
         done
 
-    - name: Create a dist tarball
+    - name: Collect vendor
+      shell: bash
+      run: |
+        echo "::group::Running go mod vendor"
+        go mod vendor
+        echo "::endgroup::"
+
+    - name: Create a deps tarball
       shell: bash
       env:
         XZ_OPT: "-T0 -9e"
       run: |
-        echo "::group::Creating dist tarball ${{ inputs.dist-filename }}"
+        echo "::group::Creating dist tarball ${{ inputs.dist-filename }}-deps.tar.xz"
         find "/tmp/go-mod/cache/download" -type f -name '*.zip' -delete || exit 1
         LC_ALL=C TZ=UTC tar -C /tmp \
           --mtime="${SOURCE_DATE_EPOCH:-1970-01-01}" --sort=name --owner=250 --group=250 \
-          -acf "${{ inputs.dist-filename }}" go-mod || exit 1
+          -acf "${{ inputs.dist-filename }}-deps.tar.xz" go-mod || exit 1
+        echo "::endgroup::"
+
+    - name: Create a vendor tarball
+      shell: bash
+      env:
+        XZ_OPT: "-T0 -9e"
+      run: |
+        echo "::group::Creating dist tarball ${{ inputs.dist-filename }}-vendor.tar.xz"
+        LC_ALL=C TZ=UTC tar \
+          --mtime="${SOURCE_DATE_EPOCH:-1970-01-01}" --sort=name --owner=250 --group=250 \
+          --transform 's,^,${{ inputs.vendor-dir }}/,' -acf "${{ inputs.dist-filename }}-vendor.tar.xz" vendor || exit 1
         echo "::endgroup::"
 
     - name: Create release
       uses: softprops/action-gh-release@v2
       with:
         body:
-        files: ${{ inputs.dist-filename }}
+        files: |
+          ${{ inputs.dist-filename }}-deps.tar.xz
+          ${{ inputs.dist-filename }}-vendor.tar.xz
         tag_name: ${{ inputs.tag }}
         fail_on_unmatched_files: true
