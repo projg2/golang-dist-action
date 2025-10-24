@@ -38,7 +38,11 @@ runs:
       shell: bash
       run: |
         echo "::group::Running go mod vendor"
-        go mod vendor
+        if [[ -f go.work ]]; then
+          go work vendor
+        else
+          go mod vendor
+        fi
         echo "::endgroup::"
 
     - name: Create a deps tarball
